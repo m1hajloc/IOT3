@@ -1,0 +1,111 @@
+version: '3'
+services:
+  mqtt_broker:
+    image: eclipse-mosquitto
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./filter_service/mosquitto_config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+    networks:
+      - iot_network
+
+  nats_server:
+    image: nats
+    volumes:
+      - ./nats-server.conf:/etc/nats-server/nats-server.conf
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    networks:
+      - iot_network
+
+  publisher:
+    build:
+      context: ./filter_service
+      dockerfile: Dockerfile.publisher
+    depends_on:
+      - mqtt_broker
+    networks:
+      - iot_network
+
+  filter_service:
+    build: ./filter_service
+    depends_on:
+      - mqtt_broker
+      - nats_server
+    networks:
+      - iot_network
+
+  influxdb:
+    image: influxdb:latest
+    container_name: influxdb
+    ports:
+      - "8086:8086"
+    environment:
+      - INFLUXDB_DB=exampledb
+      - INFLUXDB_ADMIN_USER=admin
+      - INFLUXDB_ADMIN_PASSWORD=adminpassword
+      - INFLUXDB_USER=user
+      - INFLUXDB_USER_PASSWORD=userpassword
+    networks:
+      - iot_network
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - iot_network
+    depends_on:
+      - influxdb
+  manager:
+    image: emqx/ekuiper-manager:latest
+    container_name: ekuiper-manager
+    ports:
+      - "9082:9082"
+    restart: unless-stopped
+    environment:
+         # setting default eKuiper service, works since 1.8.0
+     DEFAULT_EKUIPER_ENDPOINT: "http://ekuiper:9081"
+  ekuiper:
+    image: lfedge/ekuiper:latest
+    ports:
+      - "9081:9081"
+      - "127.0.0.1:20498:20498"
+    container_name: ekuiper
+    hostname: ekuiper
+    restart: unless-stopped
+    user: root
+    volumes:
+      - /tmp/data:/kuiper/data
+      - /tmp/log:/kuiper/log
+    environment:
+      MQTT_SOURCE__DEFAULT__SERVER: "tcp://broker.emqx.io:1883"
+      KUIPER__BASIC__CONSOLELOG: "true"
+      KUIPER__BASIC__IGNORECASE: "false"
+  ekuiperlike_service:
+    build: ./ekuiperlike_service
+    container_name: ekuiperlike_service
+    restart: unless-stopped
+    depends_on:
+      - mqtt_broker
+    networks:
+      - iot_network
+  command_service:
+    build: ./command-service
+    container_name: command_service
+    ports:
+      - "4000:4000" # Promenili smo sa 3000 na 4000
+    restart: unless-stopped
+    depends_on:
+      - mqtt_broker
+    networks:
+      - iot_network
+      
+volumes:
+  influxdb-data:
+  grafana-data:
+
+networks:
+  iot_network:
+    driver: bridge

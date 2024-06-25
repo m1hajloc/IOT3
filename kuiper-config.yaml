@@ -1,0 +1,11 @@
+streams:
+  - name: filtered_data
+    sql: "CREATE STREAM filtered_data (value DOUBLE, timestamp TIMESTAMP) WITH (FORMAT=\"JSON\", DATASOURCE=\"sensor/data\")"
+
+rules:
+  - id: rule1
+    sql: "INSERT INTO mqtt_sink SELECT * FROM filtered_data WHERE value > 30"
+    actions:
+      - mqtt:
+          server: tcp://mqtt_broker:1883
+          topic: filtered_topic
